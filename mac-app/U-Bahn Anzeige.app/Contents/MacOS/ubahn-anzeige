@@ -1,0 +1,36 @@
+#!/bin/bash
+# Startet den Datenserver und öffnet die Abfahrtsanzeige.
+# Der Server beendet sich selbst, wenn das Anzeigefenster geschlossen ist.
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+PORT=8080
+URL="http://localhost:${PORT}/"
+
+# Python suchen (python.org, Homebrew, Apple Developer Tools)
+PY=""
+for p in /Library/Frameworks/Python.framework/Versions/Current/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3; do
+  [ -x "$p" ] && PY="$p" && break
+done
+if [ -z "$PY" ] && xcode-select -p >/dev/null 2>&1 && [ -x /usr/bin/python3 ]; then PY=/usr/bin/python3; fi
+if [ -z "$PY" ]; then
+  osascript -e 'display dialog "Für die U-Bahn Anzeige wird Python 3 benötigt.\n\nBitte von python.org installieren und die App danach erneut starten." buttons {"Abbrechen", "python.org öffnen"} default button 2 with title "U-Bahn Anzeige" with icon caution' \
+    | grep -q "python.org" && open "https://www.python.org/downloads/"
+  exit 1
+fi
+
+open_board() {
+  # Chrome im App-Modus (ohne Browserleisten), sonst Standardbrowser
+  if [ -d "/Applications/Google Chrome.app" ]; then
+    open -na "Google Chrome" --args --app="$URL" --start-fullscreen
+  else
+    open "$URL"
+  fi
+}
+
+# Läuft schon? Dann nur Anzeige öffnen.
+if curl -s -o /dev/null -m 2 "$URL"; then open_board; exit 0; fi
+
+# Server im Hintergrund starten; er beendet sich selbst ca. 2 Minuten
+# nachdem das Anzeigefenster geschlossen wurde.
+nohup "$PY" "$RES/server.py" --port "$PORT" --idle-exit 120 >/dev/null 2>&1 &
+for i in $(seq 1 20); do curl -s -o /dev/null -m 1 "$URL" && break; sleep 0.3; done
+open_board

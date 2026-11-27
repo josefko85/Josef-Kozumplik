@@ -9,6 +9,7 @@ Start:  python3 server.py            -> http://localhost:8080
 Nur Python 3 nötig, keine Zusatzpakete.
 """
 import argparse
+import threading
 import json
 import os
 import time
@@ -19,6 +20,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 MVG = "https://www.mvg.de/api/bgw-pt/v3"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Abfahrtsanzeige)", "Accept": "application/json"}
 _station_cache = {}
+_last_request = [time.time()]
 
 
 def fetch_json(url):
@@ -49,6 +51,7 @@ class Handler(SimpleHTTPRequestHandler):
         pass  # ruhige Konsole
 
     def do_GET(self):
+        _last_request[0] = time.time()
         u = urllib.parse.urlparse(self.path)
         if u.path != "/api/departures":
             return super().do_GET()
@@ -79,6 +82,15 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--idle-exit", type=int, default=0,
+                    help="beendet sich nach N Sekunden ohne Anfragen (0 = nie)")
     a = ap.parse_args()
+    srv = ThreadingHTTPServer((a.host, a.port), Handler)
+    if a.idle_exit:
+        def watchdog():
+            while time.time() - _last_request[0] < a.idle_exit:
+                time.sleep(5)
+            srv.shutdown()
+        threading.Thread(target=watchdog, daemon=True).start()
     print(f"Abfahrtsanzeige läuft: http://localhost:{a.port}   (Beenden mit Strg+C)")
-    ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
+    srv.serve_forever()
