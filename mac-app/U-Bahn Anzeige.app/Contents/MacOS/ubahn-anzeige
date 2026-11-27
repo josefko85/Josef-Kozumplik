@@ -1,0 +1,57 @@
+#!/bin/bash
+# Startet den Datenserver und öffnet die Abfahrtsanzeige.
+# Der Server beendet sich selbst ca. 2 Minuten nachdem das Anzeigefenster geschlossen wurde.
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+LOG="$HOME/Library/Logs/U-Bahn-Anzeige.log"
+mkdir -p "$HOME/Library/Logs"
+exec 2>>"$LOG"
+echo "--- Start $(date)  RES=$RES" >>"$LOG"
+
+# Python suchen (python.org, Homebrew, Apple Developer Tools)
+PY=""
+for p in /Library/Frameworks/Python.framework/Versions/Current/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3; do
+  [ -x "$p" ] && PY="$p" && break
+done
+if [ -z "$PY" ] && xcode-select -p >/dev/null 2>&1 && [ -x /usr/bin/python3 ]; then PY=/usr/bin/python3; fi
+if [ -z "$PY" ]; then
+  osascript -e 'display dialog "Für die U-Bahn Anzeige wird Python 3 benötigt.\n\nBitte von python.org installieren und die App danach erneut starten." buttons {"Abbrechen", "python.org öffnen"} default button 2 with title "U-Bahn Anzeige" with icon caution' \
+    | grep -q "python.org" && open "https://www.python.org/downloads/"
+  exit 1
+fi
+echo "Python: $PY" >>"$LOG"
+
+VERSION="$(grep -m1 '^VERSION = ' "$RES/server.py" | cut -d'"' -f2)"
+is_ours()  { curl -s -m 2 "http://localhost:$1/api/ping" | grep -q '"ubahn-anzeige"'; }
+is_current() { curl -s -m 2 "http://localhost:$1/api/ping" | grep -q "\"version\": \"$VERSION\""; }
+port_free() { ! curl -s -o /dev/null -m 1 "http://localhost:$1/"; }
+
+# Läuft unsere Anzeige schon? Sonst freien Port suchen (8765, 8766, ...)
+PORT=""
+for p in 8765 8766 8767 8768 8769; do
+  if is_ours $p; then
+    if is_current $p; then PORT=$p; RUNNING=1; break; fi
+    # alte Version läuft noch -> beenden und neu starten
+    curl -s -m 2 "http://localhost:$p/api/quit" >/dev/null; sleep 1
+  fi
+  if port_free $p; then PORT=$p; break; fi
+done
+URL="http://localhost:${PORT}/"
+
+if [ -z "$RUNNING" ]; then
+  # Programmdateien an einen festen, lesbaren Ort kopieren (umgeht macOS-Zugriffssperren in Downloads)
+  APPDIR="$HOME/Library/Application Support/U-Bahn Anzeige"
+  mkdir -p "$APPDIR" && cp -f "$RES/server.py" "$APPDIR/server.py" 2>>"$LOG" || APPDIR="$RES"
+  nohup "$PY" "$APPDIR/server.py" --port "$PORT" --idle-exit 120 >>"$LOG" 2>&1 &
+  for i in $(seq 1 30); do is_ours $PORT && break; sleep 0.3; done
+  if ! is_ours $PORT; then
+    osascript -e "display dialog \"Die Anzeige konnte nicht gestartet werden.\n\nDetails stehen in:\n$LOG\" buttons {\"OK\"} with title \"U-Bahn Anzeige\" with icon stop"
+    exit 1
+  fi
+fi
+
+# Chrome im App-Modus (ohne Browserleisten), sonst Standardbrowser
+if [ -d "/Applications/Google Chrome.app" ]; then
+  open -na "Google Chrome" --args --app="$URL" --start-fullscreen
+else
+  open "$URL"
+fi
