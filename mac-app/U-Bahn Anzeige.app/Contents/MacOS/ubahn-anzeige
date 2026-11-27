@@ -20,13 +20,19 @@ if [ -z "$PY" ]; then
 fi
 echo "Python: $PY" >>"$LOG"
 
+VERSION="$(grep -m1 '^VERSION = ' "$RES/server.py" | cut -d'"' -f2)"
 is_ours()  { curl -s -m 2 "http://localhost:$1/api/ping" | grep -q '"ubahn-anzeige"'; }
+is_current() { curl -s -m 2 "http://localhost:$1/api/ping" | grep -q "\"version\": \"$VERSION\""; }
 port_free() { ! curl -s -o /dev/null -m 1 "http://localhost:$1/"; }
 
 # Läuft unsere Anzeige schon? Sonst freien Port suchen (8765, 8766, ...)
 PORT=""
 for p in 8765 8766 8767 8768 8769; do
-  if is_ours $p; then PORT=$p; RUNNING=1; break; fi
+  if is_ours $p; then
+    if is_current $p; then PORT=$p; RUNNING=1; break; fi
+    # alte Version läuft noch -> beenden und neu starten
+    curl -s -m 2 "http://localhost:$p/api/quit" >/dev/null; sleep 1
+  fi
   if port_free $p; then PORT=$p; break; fi
 done
 URL="http://localhost:${PORT}/"

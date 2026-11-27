@@ -12,11 +12,15 @@ import argparse
 import threading
 import json
 import os
+import ssl
+import subprocess
+import sys
 import time
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+VERSION = "3"
 MVG = "https://www.mvg.de/api/bgw-pt/v3"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Abfahrtsanzeige)", "Accept": "application/json"}
 _station_cache = {}
@@ -33,9 +37,35 @@ def load_page():
 _last_request = [time.time()]
 
 
+def make_ssl_context():
+    """Python von python.org auf dem Mac hat oft keine Stammzertifikate
+    (CERTIFICATE_VERIFY_FAILED). Dann die Zertifikate von macOS verwenden."""
+    try:
+        import certifi  # falls installiert
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001
+        pass
+    ctx = ssl.create_default_context()
+    if sys.platform == "darwin":
+        try:
+            pem = subprocess.run(
+                ["/usr/bin/security", "find-certificate", "-a", "-p",
+                 "/System/Library/Keychains/SystemRootCertificates.keychain",
+                 "/Library/Keychains/System.keychain"],
+                capture_output=True, timeout=20).stdout.decode("ascii", "ignore")
+            if "BEGIN CERTIFICATE" in pem:
+                ctx.load_verify_locations(cadata=pem)
+        except Exception as e:  # noqa: BLE001
+            print("Zertifikate von macOS nicht ladbar:", e, file=sys.stderr)
+    return ctx
+
+
+SSL_CTX = make_ssl_context()
+
+
 def fetch_json(url):
     req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=10, context=SSL_CTX) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
@@ -67,7 +97,11 @@ class Handler(BaseHTTPRequestHandler):
             except OSError as e:
                 return self._send(500, f"index.html nicht lesbar: {e}".encode(), "text/plain; charset=utf-8")
         if u.path == "/api/ping":
-            return self._send(200, json.dumps({"app": "ubahn-anzeige"}))
+            return self._send(200, json.dumps({"app": "ubahn-anzeige", "version": VERSION}))
+        if u.path == "/api/quit":
+            self._send(200, json.dumps({"ok": True}))
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
         if u.path != "/api/departures":
             return self._send(404, b"Nicht gefunden", "text/plain; charset=utf-8")
         p = urllib.parse.parse_qs(u.query)
@@ -81,6 +115,7 @@ class Handler(BaseHTTPRequestHandler):
                                "serverTime": int(time.time() * 1000), "departures": deps})
             self._send(200, body)
         except Exception as e:  # noqa: BLE001
+            print("Fehler beim Abruf:", repr(e), file=sys.stderr)
             self._send(502, json.dumps({"error": str(e)}))
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
