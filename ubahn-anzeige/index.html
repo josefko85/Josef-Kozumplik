@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U-Bahn Abfahrten</title>
+<style>
+  :root {
+    --housing: #15171c;
+    --panel-top: #0b2f9a;
+    --panel-bot: #06207a;
+    --text: #ffffff;
+    --dim: #a9c0ff;
+    --accent: #ffd400;
+    --red: #e4002b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; overflow: hidden; }
+  body {
+    font-family: "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
+    color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+    cursor: none;
+  }
+  body.cursor { cursor: default; }
+
+  .housing {
+    width: 100vw; height: 100vh;
+    background: var(--housing);
+    padding: 1.6vh 1.6vw;
+    display: grid;
+    grid-template-columns: 1fr 22vh;
+    gap: 1.6vw;
+  }
+
+  .panel {
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bot));
+    border-radius: 0.6vh;
+    box-shadow: inset 0 0 4vh rgba(0,0,0,.45);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  /* leichte LCD-Rasterung */
+  .panel::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.10) 0 1px, transparent 1px 3px);
+  }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 1.6vh 2.4vh 1.2vh;
+    border-bottom: 0.3vh solid rgba(255,255,255,.25);
+    gap: 2vh;
+  }
+  header .station { font-size: 4.2vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .dir { font-size: 3vh; color: var(--dim); white-space: nowrap; }
+
+  .cols, .row {
+    display: grid;
+    grid-template-columns: 11vh 1fr 14vh;
+    align-items: center;
+    gap: 2.4vh;
+    padding: 0 2.4vh;
+  }
+  .cols { font-size: 2.2vh; color: var(--dim); padding-top: 1vh; padding-bottom: .6vh; text-transform: uppercase; letter-spacing: .1em; }
+  .cols span:last-child, .row .min { text-align: right; }
+
+  #rows { flex: 1; display: flex; flex-direction: column; }
+  .row {
+    flex: 1;
+    max-height: 13vh;
+    font-size: 6.4vh;
+    font-weight: 700;
+    border-bottom: 0.2vh solid rgba(255,255,255,.12);
+  }
+  .row:first-child { font-size: 7.4vh; }
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 10vh; height: 6.2vh;
+    font-size: 4.4vh; font-weight: 800;
+    color: #fff; border-radius: 0.6vh;
+    box-shadow: 0 0 0 0.25vh rgba(255,255,255,.85);
+  }
+  .dest { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dest small { display: block; font-size: 2.4vh; font-weight: 400; color: var(--accent); margin-top: .3vh; }
+  .min { font-variant-numeric: tabular-nums; }
+  .min.late { color: var(--accent); }
+  .min.now { animation: blink 1s steps(2, start) infinite; }
+  .row.cancelled .dest, .row.cancelled .min { text-decoration: line-through; opacity: .6; }
+  @keyframes blink { to { visibility: hidden; } }
+
+  footer {
+    height: 6vh; display: flex; align-items: center;
+    background: rgba(0,0,0,.25);
+    font-size: 2.8vh; overflow: hidden; white-space: nowrap;
+    border-top: 0.3vh solid rgba(255,255,255,.25);
+  }
+  footer .tag { background: var(--accent); color: #000; font-weight: 700; padding: 0 1.4vh; height: 100%; display: flex; align-items: center; flex: none; }
+  footer .ticker { flex: 1; overflow: hidden; }
+  footer .ticker span { display: inline-block; padding-left: 100%; animation: scroll 22s linear infinite; }
+  @keyframes scroll { to { transform: translateX(-100%); } }
+
+  /* rechte Säule: Notruf + Uhr + Gleis, wie an der Original-Tafel */
+  .side { display: flex; flex-direction: column; gap: 1.6vh; align-items: center; }
+  .notruf { width: 100%; text-align: center; color: #ff8a3d; font-weight: 700; font-size: 2.4vh; line-height: 1.3; }
+  .sos { display: inline-block; background: #ff6a00; color: #fff; padding: .2vh 1vh; margin: .6vh 0; border-radius: .3vh; }
+  .clock { width: 20vh; height: 20vh; }
+  .digital { font-size: 3.6vh; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .gleis { font-size: 3vh; font-weight: 700; color: #fff; text-align: center; }
+  .gleis b { display: block; font-size: 8vh; line-height: 1; }
+
+  .empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 4vh; color: var(--dim); text-align: center; padding: 4vh; }
+
+  @media (max-aspect-ratio: 1/1) {
+    .housing { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+    .side { flex-direction: row; justify-content: space-around; }
+    .clock { width: 14vh; height: 14vh; }
+  }
+</style>
+</head>
+<body>
+<div class="housing">
+  <section class="panel">
+    <header>
+      <div class="station" id="station">Schwanthalerhöhe</div>
+      <div class="dir" id="dir">Richtung Hauptbahnhof</div>
+    </header>
+    <div class="cols"><span>Linie</span><span>Ziel</span><span>Min</span></div>
+    <div id="rows"><div class="empty">Lade Abfahrten …</div></div>
+    <footer><div class="tag" id="tag">MVG</div><div class="ticker"><span id="ticker">Echtzeitdaten werden geladen …</span></div></footer>
+  </section>
+
+  <aside class="side">
+    <div class="notruf">Notruf<br><span class="sos">SOS</span><br>Nothalt</div>
+    <svg class="clock" viewBox="0 0 200 200" aria-label="Uhr">
+      <circle cx="100" cy="100" r="96" fill="#fff" stroke="#222" stroke-width="6"/>
+      <g id="ticks"></g>
+      <line id="hh" x1="100" y1="112" x2="100" y2="52" stroke="#000" stroke-width="10" stroke-linecap="butt"/>
+      <line id="mh" x1="100" y1="116" x2="100" y2="22" stroke="#000" stroke-width="7" stroke-linecap="butt"/>
+      <g id="sh"><line x1="100" y1="130" x2="100" y2="40" stroke="#c00" stroke-width="2.5"/><circle cx="100" cy="40" r="9" fill="#c00"/></g>
+      <circle cx="100" cy="100" r="3" fill="#c00"/>
+    </svg>
+    <div class="digital" id="digital">--:--:--</div>
+    <div class="gleis">Gleis<b id="gleis">1</b></div>
+  </aside>
+</div>
+
+<script>
+/* ---------- Einstellungen (auch per URL: ?station=...&richtung=alle&demo=1) ---------- */
+const P = new URLSearchParams(location.search);
+const CONFIG = {
+  station: P.get("station") || "Schwanthalerhöhe",
+  // "hbf" = nur Züge Richtung Hauptbahnhof (Ostrichtung), "alle" = beide Richtungen
+  richtung: (P.get("richtung") || "hbf").toLowerCase(),
+  // Endhaltestellen der Gegenrichtung (Westen) – diese werden bei "hbf" ausgeblendet
+  gegenrichtung: ["Westendstraße", "Laimer Platz", "Friedenheimer Straße", "Pasing", "Heimeranplatz"],
+  rows: parseInt(P.get("zeilen") || "6", 10),
+  refreshSec: 20,
+  demo: P.has("demo"),
+};
+const LINE_COLORS = { U1:"#52822f", U2:"#c20831", U3:"#ec6726", U4:"#00a984", U5:"#bc7a00", U6:"#0065ae", U7:"#52822f", U8:"#c20831" };
+
+/* ---------- Bahnhofsuhr (mit "Sekundenstopp" wie bei echten Bahnhofsuhren) ---------- */
+const ticks = document.getElementById("ticks");
+for (let i = 0; i < 60; i++) {
+  const big = i % 5 === 0;
+  const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  l.setAttribute("x1", 100); l.setAttribute("x2", 100);
+  l.setAttribute("y1", big ? 10 : 10); l.setAttribute("y2", big ? 34 : 18);
+  l.setAttribute("stroke", "#000"); l.setAttribute("stroke-width", big ? 7 : 2.5);
+  l.setAttribute("transform", `rotate(${i * 6} 100 100)`);
+  ticks.appendChild(l);
+}
+function drawClock() {
+  const d = new Date();
+  const s = Math.min(d.getSeconds() + d.getMilliseconds() / 1000, 59.999) * (60 / 58.5);
+  const sec = Math.min(s, 60);
+  const m = d.getMinutes(), h = d.getHours() % 12;
+  document.getElementById("sh").setAttribute("transform", `rotate(${sec * 6} 100 100)`);
+  document.getElementById("mh").setAttribute("transform", `rotate(${m * 6} 100 100)`);
+  document.getElementById("hh").setAttribute("transform", `rotate(${h * 30 + m * 0.5} 100 100)`);
+  document.getElementById("digital").textContent = d.toLocaleTimeString("de-DE");
+  requestAnimationFrame(drawClock);
+}
+requestAnimationFrame(drawClock);
+
+/* ---------- Daten ---------- */
+let departures = [];   // {line, dest, time(ms), delay, cancelled, platform}
+let lastOk = 0;
+
+function demoData() {
+  // Simulierter Fahrplan: U4 & U5 abwechselnd ca. alle 5 Minuten
+  const now = Date.now(), out = [];
+  const base = Math.floor(now / 300000) * 300000;
+  for (let i = -1; i < 14; i++) {
+    const u4 = i % 2 === 0;
+    const t = base + i * 300000 + (u4 ? 60000 : 210000);
+    const delay = (i === 2) ? 2 : 0;
+    out.push({ line: u4 ? "U4" : "U5", dest: u4 ? "Arabellapark" : "Neuperlach Süd", time: t + delay * 60000, delay, cancelled: false, platform: "1" });
+    out.push({ line: u4 ? "U4" : "U5", dest: u4 ? "Westendstraße" : "Laimer Platz", time: t + 120000, delay: 0, cancelled: false, platform: "2" });
+  }
+  return out;
+}
+
+async function load() {
+  if (CONFIG.demo) {
+    departures = demoData();
+    setTicker("DEMO", "Demo-Modus – simulierte Abfahrten. Für Echtzeitdaten ohne ?demo öffnen.");
+    render();
+    return;
+  }
+  try {
+    const r = await fetch(`/api/departures?station=${encodeURIComponent(CONFIG.station)}`, { cache: "no-store" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    document.getElementById("station").textContent = j.station;
+    departures = j.departures.map(d => ({
+      line: d.label,
+      dest: d.destination,
+      time: d.realtimeDepartureTime || d.plannedDepartureTime,
+      delay: d.delayInMinutes || 0,
+      cancelled: !!d.cancelled,
+      platform: d.platform != null ? String(d.platform) : "",
+      realtime: d.realtime,
+    }));
+    lastOk = Date.now();
+    setTicker("MVG", `Echtzeitdaten der MVG · zuletzt aktualisiert ${new Date().toLocaleTimeString("de-DE")} · Bitte zurückbleiben!`);
+  } catch (e) {
+    const stale = lastOk ? ` (Daten von ${new Date(lastOk).toLocaleTimeString("de-DE")})` : "";
+    setTicker("STÖRUNG", `Keine Verbindung zur MVG${stale}: ${e.message}. Läuft server.py? Tipp: ?demo=1 für Demo-Daten.`);
+  }
+  render();
+}
+
+function setTicker(tag, text) {
+  document.getElementById("tag").textContent = tag;
+  const t = document.getElementById("ticker");
+  if (t.textContent !== text) t.textContent = text;
+}
+
+function render() {
+  const now = Date.now();
+  let list = departures.filter(d => d.time - now > -30000);
+  if (CONFIG.richtung !== "alle") {
+    list = list.filter(d => !CONFIG.gegenrichtung.some(g => d.dest && d.dest.startsWith(g)));
+    document.getElementById("dir").textContent = "Richtung Hauptbahnhof";
+  } else {
+    document.getElementById("dir").textContent = "Alle Richtungen";
+  }
+  list.sort((a, b) => a.time - b.time);
+  list = list.slice(0, CONFIG.rows);
+
+  const plat = list.find(d => d.platform)?.platform;
+  if (plat) document.getElementById("gleis").textContent = plat;
+
+  const rows = document.getElementById("rows");
+  if (!list.length) {
+    rows.innerHTML = `<div class="empty">Zurzeit keine Abfahrten</div>`;
+    return;
+  }
+  rows.innerHTML = list.map(d => {
+    const mins = Math.max(0, Math.floor((d.time - now) / 60000));
+    const color = LINE_COLORS[d.line] || "#444";
+    const minTxt = d.cancelled ? "" : (mins === 0 ? "jetzt" : mins);
+    const note = d.cancelled ? "<small>Fahrt fällt aus</small>" : (d.delay > 0 ? `<small>+${d.delay} Min Verspätung</small>` : "");
+    return `<div class="row${d.cancelled ? " cancelled" : ""}">
+      <span class="badge" style="background:${color}">${esc(d.line)}</span>
+      <span class="dest">${esc(d.dest)}${note}</span>
+      <span class="min${mins === 0 ? " now" : ""}${d.delay > 0 ? " late" : ""}">${minTxt}</span>
+    </div>`;
+  }).join("");
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
+
+load();
+setInterval(load, CONFIG.refreshSec * 1000);
+setInterval(render, 5000);
+
+/* Vollbild per Doppelklick oder Taste F; Mauszeiger nur bei Bewegung */
+document.addEventListener("dblclick", () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+document.addEventListener("keydown", e => { if (e.key === "f" || e.key === "F") document.documentElement.requestFullscreen(); });
+let mt; document.addEventListener("mousemove", () => { document.body.classList.add("cursor"); clearTimeout(mt); mt = setTimeout(() => document.body.classList.remove("cursor"), 2500); });
+</script>
+</body>
+</html>
