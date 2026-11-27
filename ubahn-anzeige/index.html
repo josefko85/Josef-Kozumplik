@@ -58,7 +58,7 @@
 
   .cols, .row {
     display: grid;
-    grid-template-columns: 11vh 1fr 14vh;
+    grid-template-columns: 11vh 1fr 17vh;
     align-items: center;
     gap: 2.4vh;
     padding: 0 2.4vh;
@@ -86,7 +86,7 @@
   .dest small { display: block; font-size: 2.4vh; font-weight: 400; color: var(--accent); margin-top: .3vh; }
   .min { font-variant-numeric: tabular-nums; }
   .min.late { color: var(--accent); }
-  .min.now { animation: blink 1s steps(2, start) infinite; }
+  .min.now { animation: blink 1s steps(2, start) infinite; font-size: .8em; }
   .row.cancelled .dest, .row.cancelled .min { text-decoration: line-through; opacity: .6; }
   @keyframes blink { to { visibility: hidden; } }
 
@@ -224,8 +224,16 @@ async function load() {
       platform: d.platform != null ? String(d.platform) : "",
       realtime: d.realtime,
     }));
+    // Störungsmeldungen der MVG (falls vorhanden) ins Laufband
+    const notes = new Set();
+    j.departures.forEach(d => [...(d.messages || []), ...(d.infos || [])].forEach(m => {
+      const t = typeof m === "string" ? m : (m.message || m.text || m.title || "");
+      if (t) notes.add(t.replace(/<[^>]*>/g, "").trim());
+    }));
+    window.mvgNotes = [...notes];
     lastOk = Date.now();
-    setTicker("MVG", `Echtzeitdaten der MVG · zuletzt aktualisiert ${new Date().toLocaleTimeString("de-DE")} · Bitte zurückbleiben!`);
+    if (window.mvgNotes.length) setTicker("INFO", window.mvgNotes.join("  ·  "));
+    else setTicker("MVG", `Echtzeitdaten der MVG · zuletzt aktualisiert ${new Date().toLocaleTimeString("de-DE")} · Bitte zurückbleiben!`);
   } catch (e) {
     const stale = lastOk ? ` (Daten von ${new Date(lastOk).toLocaleTimeString("de-DE")})` : "";
     setTicker("STÖRUNG", `Keine Verbindung zur MVG${stale}: ${e.message}. Läuft server.py? Tipp: ?demo=1 für Demo-Daten.`);
