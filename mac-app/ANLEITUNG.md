@@ -8,6 +8,10 @@
 
 Die App öffnet die Tafel (mit Google Chrome als eigenes Fenster ohne Leisten, sonst im Standardbrowser).
 Vollbild: Doppelklick auf die Tafel oder Taste F. Wenn du das Fenster schließt, beendet sich alles
-nach ca. 2 Minuten von selbst.
+nach ca. 2 Minuten von selbst. Die App sucht sich selbst einen freien Port (ab 8765).
 
 Automatisch beim Einschalten starten: **Systemeinstellungen → Allgemein → Anmeldeobjekte → „+“ → U-Bahn Anzeige**.
+
+Bei Problemen: Protokoll unter `~/Library/Logs/U-Bahn-Anzeige.log`.
+
+Neu bauen nach Änderungen an `ubahn-anzeige/`: `mac-app/build.sh`

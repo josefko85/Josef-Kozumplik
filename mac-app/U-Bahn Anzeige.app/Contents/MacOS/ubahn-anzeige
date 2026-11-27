@@ -1,9 +1,11 @@
 #!/bin/bash
 # Startet den Datenserver und öffnet die Abfahrtsanzeige.
-# Der Server beendet sich selbst, wenn das Anzeigefenster geschlossen ist.
+# Der Server beendet sich selbst ca. 2 Minuten nachdem das Anzeigefenster geschlossen wurde.
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
-PORT=8080
-URL="http://localhost:${PORT}/"
+LOG="$HOME/Library/Logs/U-Bahn-Anzeige.log"
+mkdir -p "$HOME/Library/Logs"
+exec 2>>"$LOG"
+echo "--- Start $(date)  RES=$RES" >>"$LOG"
 
 # Python suchen (python.org, Homebrew, Apple Developer Tools)
 PY=""
@@ -16,21 +18,34 @@ if [ -z "$PY" ]; then
     | grep -q "python.org" && open "https://www.python.org/downloads/"
   exit 1
 fi
+echo "Python: $PY" >>"$LOG"
 
-open_board() {
-  # Chrome im App-Modus (ohne Browserleisten), sonst Standardbrowser
-  if [ -d "/Applications/Google Chrome.app" ]; then
-    open -na "Google Chrome" --args --app="$URL" --start-fullscreen
-  else
-    open "$URL"
+is_ours()  { curl -s -m 2 "http://localhost:$1/api/ping" | grep -q '"ubahn-anzeige"'; }
+port_free() { ! curl -s -o /dev/null -m 1 "http://localhost:$1/"; }
+
+# Läuft unsere Anzeige schon? Sonst freien Port suchen (8765, 8766, ...)
+PORT=""
+for p in 8765 8766 8767 8768 8769; do
+  if is_ours $p; then PORT=$p; RUNNING=1; break; fi
+  if port_free $p; then PORT=$p; break; fi
+done
+URL="http://localhost:${PORT}/"
+
+if [ -z "$RUNNING" ]; then
+  # Programmdateien an einen festen, lesbaren Ort kopieren (umgeht macOS-Zugriffssperren in Downloads)
+  APPDIR="$HOME/Library/Application Support/U-Bahn Anzeige"
+  mkdir -p "$APPDIR" && cp -f "$RES/server.py" "$APPDIR/server.py" 2>>"$LOG" || APPDIR="$RES"
+  nohup "$PY" "$APPDIR/server.py" --port "$PORT" --idle-exit 120 >>"$LOG" 2>&1 &
+  for i in $(seq 1 30); do is_ours $PORT && break; sleep 0.3; done
+  if ! is_ours $PORT; then
+    osascript -e "display dialog \"Die Anzeige konnte nicht gestartet werden.\n\nDetails stehen in:\n$LOG\" buttons {\"OK\"} with title \"U-Bahn Anzeige\" with icon stop"
+    exit 1
   fi
-}
+fi
 
-# Läuft schon? Dann nur Anzeige öffnen.
-if curl -s -o /dev/null -m 2 "$URL"; then open_board; exit 0; fi
-
-# Server im Hintergrund starten; er beendet sich selbst ca. 2 Minuten
-# nachdem das Anzeigefenster geschlossen wurde.
-nohup "$PY" "$RES/server.py" --port "$PORT" --idle-exit 120 >/dev/null 2>&1 &
-for i in $(seq 1 20); do curl -s -o /dev/null -m 1 "$URL" && break; sleep 0.3; done
-open_board
+# Chrome im App-Modus (ohne Browserleisten), sonst Standardbrowser
+if [ -d "/Applications/Google Chrome.app" ]; then
+  open -na "Google Chrome" --args --app="$URL" --start-fullscreen
+else
+  open "$URL"
+fi

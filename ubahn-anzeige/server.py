@@ -15,11 +15,21 @@ import os
 import time
 import urllib.parse
 import urllib.request
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MVG = "https://www.mvg.de/api/bgw-pt/v3"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Abfahrtsanzeige)", "Accept": "application/json"}
 _station_cache = {}
+HERE = os.path.dirname(os.path.abspath(__file__))
+EMBEDDED_HTML = None  # wird beim Bau der Mac-App mit index.html befüllt
+
+
+def load_page():
+    if EMBEDDED_HTML:
+        return EMBEDDED_HTML.encode("utf-8")
+    with open(os.path.join(HERE, "index.html"), "rb") as f:
+        return f.read()
+
 _last_request = [time.time()]
 
 
@@ -43,9 +53,7 @@ def resolve_station(name):
     raise LookupError(f"Haltestelle '{name}' nicht gefunden")
 
 
-class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *a, **kw):
-        super().__init__(*a, directory=os.path.dirname(os.path.abspath(__file__)), **kw)
+class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass  # ruhige Konsole
@@ -53,8 +61,15 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         _last_request[0] = time.time()
         u = urllib.parse.urlparse(self.path)
+        if u.path in ("/", "/index.html"):
+            try:
+                return self._send(200, load_page(), "text/html; charset=utf-8")
+            except OSError as e:
+                return self._send(500, f"index.html nicht lesbar: {e}".encode(), "text/plain; charset=utf-8")
+        if u.path == "/api/ping":
+            return self._send(200, json.dumps({"app": "ubahn-anzeige"}))
         if u.path != "/api/departures":
-            return super().do_GET()
+            return self._send(404, b"Nicht gefunden", "text/plain; charset=utf-8")
         p = urllib.parse.parse_qs(u.query)
         station = p.get("station", ["Schwanthalerhöhe"])[0]
         types = p.get("types", ["UBAHN"])[0]
@@ -68,10 +83,10 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._send(502, json.dumps({"error": str(e)}))
 
-    def _send(self, code, body):
-        data = body.encode("utf-8")
+    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+        data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
